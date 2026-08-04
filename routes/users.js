@@ -3,6 +3,12 @@ const router = express.Router();
 const { User } = require('../models');
 const { auth, authorize } = require('../middleware/auth');
 
+const fetchUser = async (id) => await User.findByPk(id, { attributes: { exclude: ['password'] } });
+const updateUserAndFetch = async (id, data) => {
+  const [updated] = await User.update(data, { where: { id } });
+  return updated ? fetchUser(id) : null;
+};
+
 // Get current user
 router.get('/me', auth, async (req, res) => {
   try {
@@ -19,23 +25,12 @@ router.get('/me', auth, async (req, res) => {
 router.put('/me', auth, async (req, res) => {
   try {
     const allowedUpdates = ['name', 'bio', 'avatar', 'socialLinks', 'location', 'website'];
-    const updates = {};
-    
-    allowedUpdates.forEach(field => {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
-      }
-    });
+    const updates = allowedUpdates.reduce((acc, field) => {
+      if (req.body[field] !== undefined) acc[field] = req.body[field];
+      return acc;
+    }, {});
 
-    const user = await User.update(updates, {
-      where: { id: req.user.id },
-      returning: true
-    });
-
-    const updatedUser = await User.findByPk(req.user.id, {
-      attributes: { exclude: ['password'] }
-    });
-
+    const updatedUser = await updateUserAndFetch(req.user.id, updates);
     res.json(updatedUser);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -74,20 +69,8 @@ router.get('/', auth, authorize('admin'), async (req, res) => {
 // Update user role (admin only)
 router.put('/:id/role', auth, authorize('admin'), async (req, res) => {
   try {
-    const { role } = req.body;
-    const [updated] = await User.update(
-      { role },
-      { where: { id: req.params.id } }
-    );
-
-    if (!updated) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const user = await User.findByPk(req.params.id, {
-      attributes: { exclude: ['password'] }
-    });
-
+    const user = await updateUserAndFetch(req.params.id, { role: req.body.role });
+    if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -97,19 +80,8 @@ router.put('/:id/role', auth, authorize('admin'), async (req, res) => {
 // Verify user (admin only)
 router.put('/:id/verify', auth, authorize('admin'), async (req, res) => {
   try {
-    const [updated] = await User.update(
-      { isVerified: true },
-      { where: { id: req.params.id } }
-    );
-
-    if (!updated) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const user = await User.findByPk(req.params.id, {
-      attributes: { exclude: ['password'] }
-    });
-
+    const user = await updateUserAndFetch(req.params.id, { isVerified: true });
+    if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -119,20 +91,8 @@ router.put('/:id/verify', auth, authorize('admin'), async (req, res) => {
 // Activate/deactivate user (admin only)
 router.put('/:id/activate', auth, authorize('admin'), async (req, res) => {
   try {
-    const { isActive } = req.body;
-    const [updated] = await User.update(
-      { isActive },
-      { where: { id: req.params.id } }
-    );
-
-    if (!updated) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const user = await User.findByPk(req.params.id, {
-      attributes: { exclude: ['password'] }
-    });
-
+    const user = await updateUserAndFetch(req.params.id, { isActive: req.body.isActive });
+    if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (error) {
     res.status(400).json({ message: error.message });

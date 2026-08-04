@@ -11,11 +11,15 @@ build/
 dist/
 
 # Environment
-.env
+# .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Logs
+logs/
+*.log
 
 # IDE
 .vscode/

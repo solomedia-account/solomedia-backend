@@ -5,6 +5,17 @@ const { auth } = require('../middleware/auth');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 
+const getPagination = (page = 1, limit = 20) => ({
+  offset: (parseInt(page) - 1) * parseInt(limit),
+  limit: parseInt(limit)
+});
+
+const getPaginationMeta = (total, page, limit) => ({
+  current: parseInt(page),
+  pages: Math.ceil(total / parseInt(limit)),
+  total
+});
+
 // Get dashboard stats
 router.get('/stats', auth, async (req, res) => {
   try {
@@ -122,24 +133,16 @@ router.get('/users', auth, async (req, res) => {
     const { limit = 20, page = 1, role } = req.query;
     const where = role ? { role } : {};
 
+    const pagination = getPagination(page, limit);
     const users = await User.findAll({
       where,
       attributes: ['id', 'name', 'email', 'role', 'isActive', 'isVerified', 'createdAt', 'stats'],
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit)
+      ...pagination
     });
 
     const total = await User.count({ where });
-
-    res.json({
-      users,
-      pagination: {
-        current: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
-        total
-      }
-    });
+    res.json({ users, pagination: getPaginationMeta(total, page, limit) });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
