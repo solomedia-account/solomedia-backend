@@ -1,16 +1,30 @@
 const express = require('express');
 const router = express.Router();
 const { Article, User, Category } = require('../models');
+const { Op } = require('sequelize');
 const { auth, authorize } = require('../middleware/auth');
+
+const serializeTags = (tags) => Array.isArray(tags) ? JSON.stringify(tags) : tags;
+const normalizeStatus = (status, userRole) => {
+  if (userRole === 'author' && status === 'published') return 'pending_review';
+  return status || 'draft';
+};
 
 // Get all published articles
 router.get('/', async (req, res) => {
   try {
-    const { category, featured, limit = 20, page = 1 } = req.query;
+    const { category, featured, limit = 20, page = 1, search } = req.query;
     const where = { status: 'published' };
     
     if (category) where.categoryId = category;
     if (featured === 'true') where.isFeatured = true;
+    if (search) {
+      where[Op.or] = [
+        { title: { [Op.like]: `%${search}%` } },
+        { excerpt: { [Op.like]: `%${search}%` } },
+        { content: { [Op.like]: `%${search}%` } }
+      ];
+    }
 
     const articles = await Article.findAll({
       where,
@@ -58,6 +72,7 @@ router.get('/review/pending', auth, authorize('admin', 'editor'), async (req, re
 // Get single article by ID (for editing)
 router.get('/id/:id', auth, async (req, res) => {
   try {
+    console.log('Fetching article by ID:', req.params.id, 'User:', req.user.id, 'Role:', req.user.role);
     const article = await Article.findByPk(req.params.id, {
       include: [
         { model: User, as: 'author', attributes: ['id', 'name', 'avatar', 'bio'] },
@@ -66,17 +81,22 @@ router.get('/id/:id', auth, async (req, res) => {
     });
 
     if (!article) {
+      console.log('Article not found with ID:', req.params.id);
       return res.status(404).json({ message: 'Article not found' });
     }
+
+    console.log('Article found:', article.id, 'Author:', article.authorId);
 
     // Check if user is author or admin/editor
     if (article.authorId !== req.user.id && 
         !['admin', 'editor'].includes(req.user.role)) {
+      console.log('User not authorized:', req.user.id, 'Article author:', article.authorId, 'Role:', req.user.role);
       return res.status(403).json({ message: 'Not authorized to view this article' });
     }
 
     res.json(article);
   } catch (error) {
+    console.error('Error fetching article:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -108,36 +128,18 @@ router.get('/:slug', async (req, res) => {
 // Create article (protected)
 router.post('/', auth, authorize('admin', 'editor', 'author'), async (req, res) => {
   try {
-    console.log('Creating article with data:', { ...req.body, content: req.body.content?.substring(0, 50) + '...' });
-    console.log('User:', req.user.id, req.user.role);
-    
-    // Authors submit as 'pending_review', admins/editors can publish directly
-    let status = req.body.status || 'draft';
-    if (req.user.role === 'author' && status === 'published') {
-      status = 'pending_review';
-    }
-    
+    const status = normalizeStatus(req.body.status, req.user.role);
     const articleData = {
       ...req.body,
       authorId: req.user.id,
-      status
+      status,
+      tags: serializeTags(req.body.tags),
+      ...(status === 'published' && { publishedAt: new Date() })
     };
     
-    // Convert tags array to JSON string for MSSQL TEXT field
-    if (articleData.tags && Array.isArray(articleData.tags)) {
-      articleData.tags = JSON.stringify(articleData.tags);
-    }
-    
-    // Set publishedAt when status is published
-    if (status === 'published') {
-      articleData.publishedAt = new Date();
-    }
-    
     const article = await Article.create(articleData);
-    console.log('Article created successfully:', article.id, article.status, 'publishedAt:', article.publishedAt);
     res.status(201).json(article);
   } catch (error) {
-    console.error('Article creation error:', error);
     res.status(400).json({ message: error.message });
   }
 });
@@ -145,37 +147,25 @@ router.post('/', auth, authorize('admin', 'editor', 'author'), async (req, res) 
 // Update article (protected)
 router.put('/:id', auth, authorize('admin', 'editor', 'author'), async (req, res) => {
   try {
-    console.log('Updating article:', req.params.id, 'with data:', { ...req.body, content: req.body.content?.substring(0, 50) + '...' });
-    console.log('User:', req.user.id, req.user.role);
-    
     const article = await Article.findByPk(req.params.id);
     
     if (!article) {
       return res.status(404).json({ message: 'Article not found' });
     }
 
-    // Check if user is author or admin/editor
-    if (article.authorId !== req.user.id && 
-        !['admin', 'editor'].includes(req.user.role)) {
+    if (article.authorId !== req.user.id && !['admin', 'editor'].includes(req.user.role)) {
       return res.status(403).json({ message: 'Not authorized to update this article' });
     }
 
-    // Authors cannot publish directly - convert to pending_review
-    let updateData = { ...req.body };
-    if (req.user.role === 'author' && updateData.status === 'published') {
-      updateData.status = 'pending_review';
-    }
-
-    // Convert tags array to JSON string for MSSQL TEXT field
-    if (updateData.tags && Array.isArray(updateData.tags)) {
-      updateData.tags = JSON.stringify(updateData.tags);
-    }
+    const updateData = {
+      ...req.body,
+      status: normalizeStatus(req.body.status, req.user.role),
+      tags: serializeTags(req.body.tags)
+    };
 
     await article.update(updateData);
-    console.log('Article updated successfully:', article.id, article.status);
     res.json(article);
   } catch (error) {
-    console.error('Article update error:', error);
     res.status(400).json({ message: error.message });
   }
 });
@@ -214,14 +204,9 @@ router.delete('/:id', auth, authorize('admin', 'editor'), async (req, res) => {
 
     // Delete from Cloudinary
     const cloudinary = require('../config/r2');
-    for (const publicId of publicIds) {
-      try {
-        await cloudinary.uploader.destroy(publicId, { resource_type: 'auto' });
-        console.log('Deleted from Cloudinary:', publicId);
-      } catch (error) {
-        console.error('Failed to delete from Cloudinary:', publicId, error);
-      }
-    }
+    await Promise.allSettled(
+      publicIds.map(publicId => cloudinary.uploader.destroy(publicId, { resource_type: 'auto' }))
+    );
 
     // Delete article from database
     await article.destroy();

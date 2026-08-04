@@ -4,11 +4,19 @@ const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { body, validationResult } = require('express-validator');
 
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_here';
+const generateToken = (userId) => jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
+const sanitizeUser = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role });
+
 // Register
 router.post('/register', [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('email').isEmail().withMessage('Valid email is required'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+  body('password')
+    .isLength({ min: 8, max: 128 })
+    .withMessage('Password must be between 8 and 128 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
+    .withMessage('Password must contain uppercase, lowercase, number, and special character (@$!%*?&)'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -27,22 +35,8 @@ router.post('/register', [
     // Create user
     const user = await User.create({ name, email, password });
 
-    // Generate token
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET || 'your_jwt_secret_key_here',
-      { expiresIn: '7d' }
-    );
-
-    res.status(201).json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
-    });
+    const token = generateToken(user.id);
+    res.status(201).json({ token, user: sanitizeUser(user) });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -73,22 +67,8 @@ router.post('/login', [
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Generate token
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET || 'your_jwt_secret_key_here',
-      { expiresIn: '7d' }
-    );
-
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
-    });
+    const token = generateToken(user.id);
+    res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
