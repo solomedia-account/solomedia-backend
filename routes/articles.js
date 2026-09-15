@@ -3,6 +3,9 @@ const router = express.Router();
 const { Article, User, Category } = require('../models');
 const { Op } = require('sequelize');
 const { auth, authorize } = require('../middleware/auth');
+const { notifyIndexNow } = require('../utils/indexNow');
+
+const BASE_URL = process.env.FRONTEND_URL || 'https://solomedia.onrender.com';
 
 const serializeTags = (tags) => Array.isArray(tags) ? JSON.stringify(tags) : tags;
 const normalizeStatus = (status, userRole) => {
@@ -138,6 +141,13 @@ router.post('/', auth, authorize('admin', 'editor', 'author'), async (req, res) 
     };
     
     const article = await Article.create(articleData);
+    
+    // Notify IndexNow if article is published
+    if (status === 'published') {
+      const articleUrl = `${BASE_URL}/article/${article.slug}`;
+      notifyIndexNow(articleUrl).catch(err => console.error('IndexNow notification failed:', err));
+    }
+    
     res.status(201).json(article);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -164,6 +174,13 @@ router.put('/:id', auth, authorize('admin', 'editor', 'author'), async (req, res
     };
 
     await article.update(updateData);
+    
+    // Notify IndexNow if article is published
+    if (article.status === 'published') {
+      const articleUrl = `${BASE_URL}/article/${article.slug}`;
+      notifyIndexNow(articleUrl).catch(err => console.error('IndexNow notification failed:', err));
+    }
+    
     res.json(article);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -240,6 +257,13 @@ router.put('/:id/review', auth, authorize('admin', 'editor'), async (req, res) =
     }
 
     await article.update(updateData);
+    
+    // Notify IndexNow if article is published
+    if (status === 'published') {
+      const articleUrl = `${BASE_URL}/article/${article.slug}`;
+      notifyIndexNow(articleUrl).catch(err => console.error('IndexNow notification failed:', err));
+    }
+    
     res.json(article);
   } catch (error) {
     res.status(400).json({ message: error.message });
