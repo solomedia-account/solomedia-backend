@@ -34,6 +34,7 @@
     "multer": "^1.4.5-lts.1",
     "multer-storage-cloudinary": "^4.0.0",
     "mysql2": "^3.22.5",
+    "pg": "^8.23.0",
     "sequelize": "^6.37.8",
     "tedious": "^20.0.0",
     "winston": "^3.19.0"
