@@ -72,9 +72,9 @@ app.use((req, res, next) => {
 
 // Database connection and sync - don't block server startup
 sequelize.sync({ alter: true })
-  .then(() => logger.info('Azure SQL database connected and synced'))
+  .then(() => logger.info('Aiven MySQL database connected and synced'))
   .catch(err => {
-    logger.error('Azure SQL connection error:', err.message);
+    logger.error('Aiven MySQL connection error:', err.message);
     logger.warn('Server starting without database connection. Some features may not work.');
   });
 
