@@ -79,12 +79,26 @@ sequelize.sync({ alter: true })
   });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
+app.get('/health', async (req, res) => {
+  try {
+    // Test database connection
+    await sequelize.authenticate();
+    
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: 'connected',
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: 'disconnected',
+      error: error.message,
+    });
+  }
 });
 
 // Root route
