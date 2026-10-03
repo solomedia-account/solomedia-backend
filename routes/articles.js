@@ -132,13 +132,35 @@ router.get('/:slug', async (req, res) => {
 router.post('/', auth, authorize('admin', 'editor', 'author'), async (req, res) => {
   try {
     const status = normalizeStatus(req.body.status, req.user.role);
+    
+    // Validate required fields
+    const requiredFields = ['title', 'slug', 'excerpt', 'content', 'categoryId'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+    if (missingFields.length > 0) {
+      return res.status(400).json({ 
+        message: `Missing required fields: ${missingFields.join(', ')}` 
+      });
+    }
+    
     const articleData = {
-      ...req.body,
+      title: req.body.title,
+      slug: req.body.slug,
+      excerpt: req.body.excerpt,
+      content: req.body.content,
       authorId: req.user.id,
+      categoryId: req.body.categoryId,
       status,
       tags: serializeTags(req.body.tags),
+      featuredImage: req.body.featuredImage || null,
+      isFeatured: req.body.isFeatured || false,
       ...(status === 'published' && { publishedAt: new Date() })
     };
+    
+    console.log('Creating article with data:', { 
+      ...articleData, 
+      content: articleData.content?.substring(0, 100) + '...',
+      featuredImage: articleData.featuredImage 
+    });
     
     const article = await Article.create(articleData);
     
@@ -150,6 +172,26 @@ router.post('/', auth, authorize('admin', 'editor', 'author'), async (req, res) 
     
     res.status(201).json(article);
   } catch (error) {
+    console.error('Error creating article:', error);
+    console.error('Error details:', {
+      message: error.message,
+      name: error.name,
+      errors: error.errors
+    });
+    
+    // Handle specific validation errors
+    if (error.name === 'SequelizeValidationError') {
+      return res.status(400).json({ 
+        message: `Validation error: ${error.errors.map(e => e.message).join(', ')}` 
+      });
+    }
+    
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({ 
+        message: `Duplicate entry: ${error.errors[0].message}` 
+      });
+    }
+    
     res.status(400).json({ message: error.message });
   }
 });
@@ -167,22 +209,55 @@ router.put('/:id', auth, authorize('admin', 'editor', 'author'), async (req, res
       return res.status(403).json({ message: 'Not authorized to update this article' });
     }
 
+    const status = normalizeStatus(req.body.status, req.user.role);
     const updateData = {
-      ...req.body,
-      status: normalizeStatus(req.body.status, req.user.role),
-      tags: serializeTags(req.body.tags)
+      title: req.body.title,
+      slug: req.body.slug,
+      excerpt: req.body.excerpt,
+      content: req.body.content,
+      categoryId: req.body.categoryId,
+      status,
+      tags: serializeTags(req.body.tags),
+      featuredImage: req.body.featuredImage || null,
+      isFeatured: req.body.isFeatured || false,
     };
+
+    console.log('Updating article with data:', { 
+      ...updateData, 
+      content: updateData.content?.substring(0, 100) + '...',
+      featuredImage: updateData.featuredImage 
+    });
 
     await article.update(updateData);
     
     // Notify IndexNow if article is published
-    if (article.status === 'published') {
+    if (status === 'published') {
       const articleUrl = `${BASE_URL}/article/${article.slug}`;
       notifyIndexNow(articleUrl).catch(err => console.error('IndexNow notification failed:', err));
     }
     
     res.json(article);
   } catch (error) {
+    console.error('Error updating article:', error);
+    console.error('Error details:', {
+      message: error.message,
+      name: error.name,
+      errors: error.errors
+    });
+    
+    // Handle specific validation errors
+    if (error.name === 'SequelizeValidationError') {
+      return res.status(400).json({ 
+        message: `Validation error: ${error.errors.map(e => e.message).join(', ')}` 
+      });
+    }
+    
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({ 
+        message: `Duplicate entry: ${error.errors[0].message}` 
+      });
+    }
+    
     res.status(400).json({ message: error.message });
   }
 });
