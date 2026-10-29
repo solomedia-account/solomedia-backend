@@ -1,0 +1,58 @@
+name: Deploy Backend to Oracle Cloud VM
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to Backend VM
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.BACKEND_VM_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            # Navigate to project directory
+            cd ~/solomedia-backend || (cd ~ && git clone https://github.com/solomedia-account/solomedia-backend.git && cd ~/solomedia-backend)
+
+            # Pull latest changes
+            git pull origin master
+
+            # Stop and remove existing container
+            docker stop solomedia-backend || true
+            docker rm solomedia-backend || true
+
+            # Remove old image to free up space
+            docker rmi solomedia-backend || true
+
+            # Build new image
+            docker build -t solomedia-backend .
+
+            # Run new container
+            docker run -d \
+              --name solomedia-backend \
+              -p 5000:5000 \
+              --env-file .env \
+              -e NODE_OPTIONS=--max-old-space-size=768 \
+              --restart unless-stopped \
+              solomedia-backend
+
+            # Wait for container to start
+            sleep 10
+
+            # Check container status
+            docker ps | grep solomedia-backend
+
+            # Show recent logs
+            docker logs --tail 20 solomedia-backend
+
+            # Health check
+            curl -f http://localhost:5000/health || exit 1
+
+            echo "Backend deployment successful!"
